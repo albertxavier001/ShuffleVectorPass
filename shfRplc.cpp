@@ -62,7 +62,8 @@ public:
 
         SmallVector<int, 16> candidate;
         number_count(signature, 1, len-1, number_check, candidate);
-        // check rotate pattern
+        
+        // check rotate pattern ( one lane)
         if ( ((candidate[1] == len-2)&&(candidate[4] == 1/*1-opLen??*/)&& (len == opLen) ) ){
             for(int i=1; i<signature.size(); i++){
               if (signature[i] == 1-opLen){
@@ -72,7 +73,7 @@ public:
             }
             return Rotate;
         }
-
+        // check rotate pattern ( multiple lanes)
         if ((candidate[1] == len-2) && (len < opLen)) {
           for(int i=1; i<signature.size(); i++){
             if (signature[i] == 1 - len){
@@ -108,6 +109,30 @@ public:
             }
         }
 
+        // check zeroExtention
+        // bug: it seems that lane_detect cannot detect lanes for zeroExtention
+        // note: len = 2^n * opLen (n = 0,1,2...)
+        if (signature[0] == 0) {
+          bool succ = true;
+          for (int i = 1; i <= opLen; ++i)
+          {
+            if (signature[i] != 1) {
+                succ = false;
+                break;
+            }
+          }
+          for (int i = opLen+1; i < len; ++i)
+          {
+            if (signature[i] != 0) {
+              succ = false;
+              break;
+            }
+          }
+          if (succ) {
+            return ZeroExtend;
+          }
+        }
+
         // check shift left pattern
         if (candidate[0] + candidate[1] + candidate[5] == len-1) {
             bool succ = 1;
@@ -141,6 +166,8 @@ public:
             if (succ)
                 return Blend;
         }
+
+        
 
         // after all special cases checked
         return NoPattern;
@@ -330,7 +357,29 @@ bool replaceWithShiftRightLogical() {
     return true;
 }
 bool replaceWithZeroExtend() {
-	return true;
+    Value* op1 = svi->getOperand(0);
+    VectorType* v1Type = cast<VectorType>(op1->getType());
+    VectorType* resType = cast<VectorType>(svi->getType());
+    unsigned bitLen = v1Type->getBitWidth();
+    unsigned opNum = v1Type->getNumElements();
+    unsigned resLen = resType->getBitWidth();
+    
+    // laneNum = 1
+    // replace shufflevector with zeroExtention
+    
+    // %bcInst1 = bitcast <a x bi>%v1 to (a*b)i
+    Type* intType = Type::getIntNTy(svi->getContext(), resLen);// element int type in result vector
+    BitCastInst* bcInst1 = new BitCastInst(op1, Type::getIntNTy(svi->getContext(), bitLen), "bitcast1", (Instruction *)svi);
+
+    // try to replace 
+    CastInst* testInst1 =  CastInst::CreateZExtOrBitCast((Value*)bcInst1, Type::getIntNTy(svi->getContext(), resLen), "res", (Instruction *)svi);
+
+    BitCastInst* bcInst2 = new BitCastInst((Value *)testInst1, (Type *)resType, "bitcast2", (Instruction *)svi);
+    //
+    _DEBUG<<"???\n";
+    svi->replaceAllUsesWith((Value *)bcInst2);
+
+    return true;
 }
 bool replaceWithMerge() {
 	return true;
